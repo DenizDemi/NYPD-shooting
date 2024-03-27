@@ -1,0 +1,220 @@
+---
+title: "NYPD Shooting Incident Data Report"
+date: "2024-03-12"
+output: pdf_document
+---
+## Introduction
+In this project we aim to explore the NYPD Shooting Incident Data. According to data.gov, this is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. We will explore this data for patterns such as fatality, comparison of cases in boroughs, trends over time, victims' profile.
+
+### Data
+Data is available at City of New York's website: https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+More information about the data can be found at: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading the Data
+First, we need to load the necessary libraries.
+```{r libs, include=TRUE}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+We load the NYPD Shooting Incident Data, take a look at the first few rows and examine the summary of the data.
+```{r loading}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_data <- read.csv(url_in)
+head(nypd_data, 2)
+summary(nypd_data)
+```
+
+## Tidying and Transforming the Data
+From the summary and head of the data we can see that there are several variables that we are not going to use for our analysis. We start by removing variables INCIDENT_KEY, LOC_OF_OCCUR_DESC, JURISDICTION_CODE, X_COORD_CD, Y_COORD_CD, LOC_CLASSFCTN_DESC, LOCATION_DESC, Latitude, Longitude, Lon_Lat.
+```{r cleanup, echo=TRUE}
+nypd_data <- select(nypd_data, -c(INCIDENT_KEY, LOC_OF_OCCUR_DESC, JURISDICTION_CODE,
+                                  X_COORD_CD, Y_COORD_CD, LOC_CLASSFCTN_DESC, LOCATION_DESC,
+                                  Latitude, Longitude, Lon_Lat))
+```
+We can see in the summary that OCCUR_DATE and OCCUR_TIME are of character type, we convert them to date and time types respectively. 
+```{r cleanmore, echo=TRUE}
+nypd_data <- mutate(nypd_data, OCCUR_DATE = mdy(OCCUR_DATE)) 
+nypd_data <- mutate(nypd_data, OCCUR_TIME = hms(OCCUR_TIME)) 
+```
+We will also convert STATISTICAL_MURDER_FLAG, VIC_SEX, VIC_RACE, VIC_AGE_GROUP, BORO to factor variables. 
+```{r clean, echo=TRUE}
+nypd_data <- mutate(nypd_data, STATISTICAL_MURDER_FLAG = as.factor(STATISTICAL_MURDER_FLAG))
+nypd_data <- mutate(nypd_data, VIC_SEX = as.factor(VIC_SEX))
+nypd_data <- mutate(nypd_data, VIC_RACE = as.factor(VIC_RACE))
+nypd_data <- mutate(nypd_data, VIC_AGE_GROUP = as.factor(VIC_AGE_GROUP))
+nypd_data <- mutate(nypd_data, BORO = as.factor(BORO))
+```
+Next, we summarize to see where we are at in terms of cleaning the data.
+```{r summarynew, echo=TRUE}
+summary(nypd_data)
+```
+We notice that there is a value of 1022 in VIC_AGE_GROUP, that must be a typo, so we change that to "UNKNOWN" and drop that factor level. 
+```{r outliers, echo=TRUE}
+nypd_data$VIC_AGE_GROUP <- replace(nypd_data$VIC_AGE_GROUP, 
+                                   nypd_data$VIC_AGE_GROUP==1022, "UNKNOWN")
+nypd_data$VIC_AGE_GROUP <- droplevels(nypd_data$VIC_AGE_GROUP)
+```
+Next, we clean up PERP_SEX, PERP_AGE_GROUP and PERP_RACE variables and factorize them. (null), empty variables are changed to "UNKNOWN" or "U".
+```{r perp2, echo=TRUE}
+nypd_data$PERP_SEX <- replace(nypd_data$PERP_SEX, nypd_data$PERP_SEX == "(null)"|
+                                    nypd_data$PERP_SEX == "", "U")
+nypd_data$PERP_AGE_GROUP <- replace(nypd_data$PERP_AGE_GROUP, 
+                                    nypd_data$PERP_AGE_GROUP == "(null)" |
+                                          nypd_data$PERP_AGE_GROUP == "", "UNKNOWN")
+nypd_data <- mutate(nypd_data, PERP_SEX = as.factor(PERP_SEX))
+nypd_data <- mutate(nypd_data, PERP_AGE_GROUP = as.factor(PERP_AGE_GROUP))
+nypd_data$PERP_RACE <- replace(nypd_data$PERP_RACE, nypd_data$PERP_RACE == "(null)" |
+                                     nypd_data$PERP_RACE == "", "UNKNOWN")
+nypd_data <- mutate(nypd_data, PERP_RACE = as.factor(PERP_RACE))
+```
+Let's check the data again:
+```{r sum3, echo=TRUE}
+summary(nypd_data)
+```
+
+After doing all the clean up we can see that there are many unknown values in the perpetrator's
+race, age and sex. So we decided to concentrate our analysis on victim's profile instead. 
+
+## Visualizations and Analysis
+Now that we cleaned and prepared our data, we are ready to do some exploratory analysis. 
+
+### Number of Incidents in New York City Boroughs
+First, we will take a look at the total number of incidents in each borough of New York City.
+```{r boro, echo=TRUE, fig.height=3, fig.width=6}
+ggplot(nypd_data, aes(x=BORO)) + 
+      geom_bar() +
+      labs(title = "Number of Incidents in New York City Boroughs",
+           x = "boroughs",
+           y = "# incidents")
+```
+
+Brooklyn is the borough with the highest number of incidents and Staten Island has the lowest number of incidents. 
+
+### Fatal vs. Non-Fatal Incidents
+Next, we will contrast fatal versus non-fatal incidents.
+```{r mflag, echo=TRUE, fig.height=2, fig.width= 3}
+ggplot(nypd_data, aes(x=STATISTICAL_MURDER_FLAG)) + 
+      geom_bar() +
+      labs(title = "Fatal vs. Non-Fatal Incidents",
+           x = "fatality",
+           y = "# incidents") +
+      scale_x_discrete(labels=c("non-fatal", "fatal"))
+```
+
+We see that vast majority of incidents are non-fatal. 
+
+### Incidents by Year
+Let's examine how the number of incidents changed over the years.
+```{r year, echo= TRUE,fig.height=3, fig.width= 5}
+nypd_year <- nypd_data %>% reframe(O_YEAR = year(nypd_data$OCCUR_DATE)) %>% 
+      group_by(O_YEAR) %>% summarize(YEAR_N = n())
+ggplot(nypd_year, aes(x=O_YEAR, y= YEAR_N)) +
+      geom_line() +
+      labs(title = "Number of Incidents by Year",
+           x = "year",
+           y = "# incidents")      
+```
+
+Based on our analysis number of incidents were steadily going down but peaked around 2020. This might be because of the pandemic. This could be an area for further investigation in the future. 
+
+### Incidents by Time of the Day
+
+Here we will examine the hours of the day when incidents occured. 
+``` {r time, echo=TRUE, fig.height=3, fig.width= 5}
+nypd_time <- nypd_data %>% reframe(O_HOUR = hour(nypd_data$OCCUR_TIME)) %>% 
+      group_by(O_HOUR) %>% summarize(HOUR_N = n()) %>% as.data.frame()
+ggplot(nypd_time, aes(x=O_HOUR, y = HOUR_N)) + 
+      geom_line() +
+      labs(title = "Number of Incidents per Time",
+      x = "time",
+      y = "# incidents")
+```
+
+Late night has the most number of incidents, morning hours are safest.
+
+### Incidents in each Borough per Victim Age Group
+Here we will look at victim's age groups in each borough of New York City. 
+```{r age, echo = TRUE, warning=FALSE}
+nypd_ageboro <- nypd_data %>% group_by(BORO, VIC_AGE_GROUP) %>% summarize(incidents = n())
+
+ggplot(nypd_ageboro, aes(VIC_AGE_GROUP, incidents, col = VIC_AGE_GROUP)) + 
+      geom_bar(stat = "identity") + 
+      facet_wrap(vars(BORO)) +
+      theme(axis.text.x = element_blank()) +
+      labs(title = "Number of Incidents per Victims Age Group in each Borough",
+      x = "Victim's Age",
+      y = "# incidents")     
+```
+
+The age group 25-44 has the highest number of victims in each borough with agaim Brooklyn taking the lead. One might be safer in New York past 45 years of age, this might be another point for further analysis in the future. 
+
+## Model 
+Here we will investigate the change of victim profile over the years, first the sex of the victim. We group the data by year and victim's sex. 
+```{r regr, echo=TRUE, warning=FALSE}
+nypd_years <- nypd_data 
+nypd_years <- mutate(nypd_data, O_YEAR =  year(nypd_data$OCCUR_DATE))
+nypd_years <- nypd_years %>% group_by(O_YEAR, VIC_SEX) %>% summarize(YEAR_S = n())
+
+ggplot(nypd_years, aes(x=O_YEAR, y=YEAR_S), color=VIC_SEX) +
+      ggtitle("Victims' Sex Over The Years") +
+      geom_point() +
+      geom_smooth(method = "lm", alpha = .15, aes(fill = VIC_SEX)) 
+```
+Here we can see that the number of incidents involving female victims stayed generally the same over the years and is well below male victims. The male victims are on a downward trend in general with the exception that we noted in around year 2020 in our previous analysis of Incidents per Year. This leads to our next analysis of victim profile.
+
+### Victim Profile Modeling
+Here we will attempt to profile the victims of shooting incidents, grouping them by sex, race and age group. We will fit a linear model. 
+
+```{r vicprofile, echo=TRUE, warning=FALSE}
+nypd_profile <- nypd_data 
+nypd_profile <- nypd_profile %>% group_by(VIC_SEX, VIC_AGE_GROUP, VIC_RACE) %>%
+      summarize(N_INCIDENT = n())
+fitpro <- lm(N_INCIDENT ~ VIC_SEX + VIC_AGE_GROUP + VIC_RACE, data = nypd_profile)
+
+par(mfrow = c(2,2))
+plot(fitpro)
+summary(fitpro)
+
+```
+
+We see in the Residuals vs Fitted plot two extreme values. We check what those are.
+
+```{r extreme, echo=TRUE}
+nypd_profile[47,]
+nypd_profile[40,]
+```
+
+According to our model being black, male and in the age group 25-44 is the most common victim profile. When we check the residual plot also we can see this profile as the most extreme outlier with black, male, age group 18-24 being the other extreme value.
+
+## Conclusion
+In our analysis we found that being black, male and between ages 25-44 is the most common victim profile. We saw that female gun incident victims are lower in number and relatively steady over time. While male victim numbers are significantly higher, they seem to be on a downward trend with the exception around year 2020. 
+
+Brooklyn has the most number of gun related incidents. Most victims are between ages 25-44. Late night hours have the most number of incidents and vast majority of incidents are non-fatal. 
+
+Our conclusion is being black, male, in the age group 25-44, being in Brooklyn late at night make one most likely to fall victim of a gun related incident. Thankfully it is most likely to be non-fatal and the number of incidents seem to be on a downward trend again after 2020. 
+
+### Suggestions for Further Research
+There is a downward trend in incidents but there is a peak around 2020 and again it is coming down. The reasons behind this pattern could be subject for further research, for example possible effect of covid-19. 
+
+After the age of 45 the victims' numbers drop dramatically, the reasons for this could be investigated taking into account overall demographic information about the population in the area.
+
+When comparing number of incidents in boroughs population data could be taken into consideration. 
+
+## Potential Sources of Bias
+There are many missing values in the data set, how we impute them can be potential source of bias. In particular, the PERP_RACE, perpetrator's race variable has more unknown or empty values than the highest factor category (BLACK: 11432 vs. UNKNOWN: 11786). With so many missing values we chose to leave out the perpetrator's demographics from our analysis.
+
+Of course our own biases can influence our analysis as well. Personally, I feel strongly that there should be stricter gun control laws and it should not be so easy for people to get guns. However, I realize that many people see having guns as their right. My bias would suggest that most incidents involving guns would be fatal, but the data shows otherwise as in the Fatal vs Non-Fatal section. 
+
+Another source of personal bias is the view that violence against women are on the rise. However according to this data that is not true, it seems pretty much level and is well below male's. 
+
+### Appendix
+```{r session, echo=TRUE}
+sessionInfo()
+```
